@@ -1,0 +1,9 @@
+{
+  "name": "Welfare Canteen POS",
+  "short_name": "Canteen POS",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#EEF0EA",
+  "theme_color": "#2C3A24",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
