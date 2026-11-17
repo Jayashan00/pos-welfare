@@ -5,6 +5,7 @@ import { labelsHTML, printHTML, printLabels, receiptHTML, testPrintHTML } from '
 import { useConfirm, useToast } from '../components/ui';
 import { IconDownload, IconPrinter, IconUpload } from '../components/Icons';
 import { LABEL_SIZES } from './Products';
+import { RecoveryCodeModal } from '../App';
 
 const SAMPLE_SALE = {
   billNo: 'WC000123', ts: Date.now(), userName: 'Cpl. Silva', status: 'completed',
@@ -45,14 +46,15 @@ export default function Settings() {
   const toast = useToast();
   const confirm = useConfirm();
   const [f, setF] = useState(() => ({ ...settings, memberTypesText: settings.memberTypes.join(', ') }));
-  const dirty = useMemo(() => Object.keys(f).some((k) => !['memberTypesText', 'nextBillNo', 'lastBackup', 'nextItemCode', 'sampleData', 'memberTypes'].includes(k) && String(f[k] ?? '') !== String(settings[k] ?? '')) || f.memberTypesText !== settings.memberTypes.join(', '), [f, settings]);
+  const [newCode, setNewCode] = useState(null);
+  const dirty = useMemo(() => Object.keys(f).some((k) => !['memberTypesText', 'nextBillNo', 'lastBackup', 'nextItemCode', 'sampleData', 'memberTypes', 'recoveryHash', 'recoveryCreatedAt'].includes(k) && String(f[k] ?? '') !== String(settings[k] ?? '')) || f.memberTypesText !== settings.memberTypes.join(', '), [f, settings]);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
 
   const save = async () => {
     if (!f.canteenName.trim()) return toast('Enter the canteen name.', 'error');
     const types = f.memberTypesText.split(',').map((s) => s.trim()).filter(Boolean);
     const { memberTypesText, nextBillNo, lastBackup, ...rest } = f;
-    const next = await saveSettings({ ...rest, nextItemCode: settings.nextItemCode, sampleData: settings.sampleData, taxRate: Number(f.taxRate) || 0, lowStockDefault: Number(f.lowStockDefault) || 0, paperWidth: Number(f.paperWidth), receiptFontScale: Number(f.receiptFontScale), memberTypes: types.length ? types : settings.memberTypes });
+    const next = await saveSettings({ ...rest, nextItemCode: settings.nextItemCode, sampleData: settings.sampleData, recoveryHash: settings.recoveryHash, recoveryCreatedAt: settings.recoveryCreatedAt, taxRate: Number(f.taxRate) || 0, lowStockDefault: Number(f.lowStockDefault) || 0, paperWidth: Number(f.paperWidth), receiptFontScale: Number(f.receiptFontScale), memberTypes: types.length ? types : settings.memberTypes });
     setF({ ...next, memberTypesText: next.memberTypes.join(', ') });
     toast('Settings saved');
   };
@@ -169,6 +171,17 @@ export default function Settings() {
           </div>
         </section>
 
+        <section className="panel">
+          <h2>Security</h2>
+          <p className="muted">The recovery code resets a forgotten administrator PIN from the sign-in screen without losing data. {settings.recoveryHash ? <>Current code issued <b>{fmtDateTime(settings.recoveryCreatedAt)}</b>.</> : <b>No recovery code has been issued yet.</b>}</p>
+          <div className="row-btns" style={{ marginTop: 12 }}>
+            <button className="btn btn-primary" onClick={async () => {
+              if (settings.recoveryHash && !(await confirm({ title: 'Issue a new recovery code?', message: 'The old code will stop working. Destroy the old printed copy.', confirmText: 'Issue new code' }))) return;
+              setNewCode(await store.createRecoveryCode());
+            }}>{settings.recoveryHash ? 'Issue a new recovery code' : 'Create a recovery code'}</button>
+          </div>
+        </section>
+
         <section className="panel guide">
           <h2>Hardware setup</h2>
           <dl>
@@ -181,6 +194,7 @@ export default function Settings() {
         </section>
       </div>
 
+      {newCode && <RecoveryCodeModal code={newCode} onClose={() => setNewCode(null)} />}
       {dirty && (
         <div className="savebar">
           <span>You have unsaved changes.</span>

@@ -3,7 +3,15 @@
 Point-of-sale system for an army camp welfare canteen: barcode selling, thermal receipts,
 barcode labels, stock control, member credit (salary deduction), reports and day-end.
 
-First login: user **Administrator**, PIN **1234** (you must set a new PIN straight away).
+## Signing in
+- A new installation starts with user **Administrator**, PIN **1234**.
+- On first sign-in you must choose your own PIN. The system then shows a **recovery code**
+  once: print it and keep it in the office safe.
+- Enter the PIN with the on-screen keypad, the number keys, or the keyboard number pad.
+  There is no password box, so Chrome cannot save or pre-fill the PIN.
+- **Forgot PIN?** on the sign-in screen resets an administrator PIN with the recovery code,
+  without losing any data. A new code can be issued in Settings, under Security.
+- Create a second Administrator account for the officer in charge as a further safeguard.
 
 ## Run on your own computer (optional)
 1. Install Node.js 18 or newer from nodejs.org.

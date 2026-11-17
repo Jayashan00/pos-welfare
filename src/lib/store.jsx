@@ -53,11 +53,14 @@ export function StoreProvider({ children }) {
       const admin = { id: 'u-admin', name: 'Administrator', username: 'admin', role: 'admin', active: true, pinHash: await hashPin('1234'), mustChangePin: true, createdAt: Date.now() };
       const prods = sampleProducts();
       const mems = sampleMembers();
-      await db.put('settings', set);
-      await db.put('users', admin);
-      await db.putMany('categories', DEFAULT_CATEGORIES);
-      await db.putMany('products', prods);
-      await db.putMany('members', mems);
+      // One transaction: either all of the starting data is saved, or none of it.
+      await db.writeAtomic([
+        { store: 'settings', type: 'put', value: set },
+        { store: 'users', type: 'put', value: admin },
+        ...DEFAULT_CATEGORIES.map((c) => ({ store: 'categories', type: 'put', value: c })),
+        ...prods.map((x) => ({ store: 'products', type: 'put', value: x })),
+        ...mems.map((x) => ({ store: 'members', type: 'put', value: x })),
+      ]);
       out.users = [admin];
       out.categories = DEFAULT_CATEGORIES;
       out.products = prods;
@@ -78,7 +81,11 @@ export function StoreProvider({ children }) {
     setReady(true);
   }, []);
 
+  const started = useRef(false);
   useEffect(() => {
+    // Development mode runs effects twice; the first-time setup must only run once.
+    if (started.current) return;
+    started.current = true;
     load().catch((e) => {
       console.error(e);
       setError('This browser blocked local storage. Open the POS in Google Chrome (not in private / incognito mode) and try again.');
@@ -101,12 +108,39 @@ export function StoreProvider({ children }) {
     const h = await hashPin(pin);
     if (h !== u.pinHash) throw new Error('Wrong PIN. Try again.');
     sessionStorage.setItem(SESSION_KEY, u.id);
+    try { localStorage.setItem('wcpos-lastuser', u.username); } catch { /* ignore */ }
     setUser(u);
     return u;
   };
   const logout = () => {
     sessionStorage.removeItem(SESSION_KEY);
     setUser(null);
+  };
+
+  // ---------- PIN recovery ----------
+  // A one-time recovery code lets an administrator reset a forgotten PIN
+  // without losing any data. Only a hash of the code is stored.
+  const normCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const createRecoveryCode = async () => {
+    const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const bytes = new Uint8Array(12);
+    (window.crypto || {}).getRandomValues ? window.crypto.getRandomValues(bytes) : bytes.forEach((_, i) => (bytes[i] = Math.floor(Math.random() * 256)));
+    const raw = [...bytes].map((b) => abc[b % abc.length]).join('');
+    const code = raw.match(/.{4}/g).join('-');
+    await saveSettings({ recoveryHash: await hashPin('rc:' + normCode(code)), recoveryCreatedAt: Date.now() });
+    return code;
+  };
+  const resetPinWithCode = async ({ code, userId, pin }) => {
+    const set = settingsRef.current;
+    if (!set.recoveryHash) throw new Error('No recovery code has been set up on this computer.');
+    if ((await hashPin('rc:' + normCode(code))) !== set.recoveryHash) throw new Error('That recovery code is not correct.');
+    if (!/^\d{4,8}$/.test(pin)) throw new Error('The new PIN must be 4 to 8 digits.');
+    const u = dataRef.current.users.find((x) => x.id === userId);
+    if (!u) throw new Error('Choose the account to reset.');
+    const item = { ...u, active: true, pinHash: await hashPin(pin), mustChangePin: false };
+    await db.put('users', item);
+    patch('users', (a) => upsert(a, item));
+    return item;
   };
 
   // ---------- settings ----------
@@ -284,7 +318,7 @@ export function StoreProvider({ children }) {
     if (!m.serviceNo?.trim()) throw new Error('Enter the service number.');
     const dup = dataRef.current.members.find((x) => x.serviceNo.toLowerCase() === m.serviceNo.trim().toLowerCase() && x.id !== m.id);
     if (dup) throw new Error(`Service number ${m.serviceNo} is already registered to ${dup.name}.`);
-    const item = { balance: 0, active: true, discountPct: 0, ...m, id: m.id || uid('m-'), serviceNo: m.serviceNo.trim(), name: m.name.trim(), creditLimit: Number(m.creditLimit) || 0, discountPct: Number(m.discountPct) || 0, createdAt: m.createdAt || Date.now() };
+    const item = { balance: 0, active: true, ...m, id: m.id || uid('m-'), serviceNo: m.serviceNo.trim(), name: m.name.trim(), creditLimit: Number(m.creditLimit) || 0, discountPct: Number(m.discountPct) || 0, createdAt: m.createdAt || Date.now() };
     await db.put('members', item);
     patch('members', (a) => upsert(a, item, 'name'));
     return item;
@@ -525,7 +559,7 @@ export function StoreProvider({ children }) {
   const value = useMemo(
     () => ({
       ready, error, settings, user, ...data,
-      login, logout, saveSettings,
+      login, logout, saveSettings, createRecoveryCode, resetPinWithCode,
       saveCategory, deleteCategory,
       saveProduct, deleteProduct, importProducts, nextItemBarcode,
       receiveStock, adjustStock,

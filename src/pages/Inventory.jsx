@@ -253,7 +253,7 @@ function History() {
           <table className="tbl">
             <thead><tr><th>Date</th><th>Product</th><th>Type</th><th className="n">Qty</th><th>Reference</th><th>By</th></tr></thead>
             <tbody>{list.slice(0, limit).map((m) => (
-              <tr key={m.id}><td>{fmtDateTime(m.ts)}</td><td>{m.productName}</td><td><Badge tone={TYPE[m.type]?.[1]}>{TYPE[m.type]?.[0]}</Badge></td><td className={`n b ${m.qty < 0 ? 'neg' : 'pos'}`}>{m.qty > 0 ? '+' : ''}{qtyStr(m.qty)}</td><td>{m.ref}{m.supplier ? ` · ${m.supplier}` : ''}{m.note ? <small>{m.note}</small> : null}</td><td>{m.userName}</td></tr>
+              <tr key={m.id}><td>{fmtDateTime(m.ts)}</td><td>{m.productName}</td><td><Badge tone={TYPE[m.type]?.[1]}>{TYPE[m.type]?.[0]}</Badge></td><td className={`n b ${m.qty < 0 ? 'neg' : 'plus'}`}>{m.qty > 0 ? '+' : ''}{qtyStr(m.qty)}</td><td>{m.ref}{m.supplier ? ` · ${m.supplier}` : ''}{m.note ? <small>{m.note}</small> : null}</td><td>{m.userName}</td></tr>
             ))}</tbody>
           </table>
           {list.length > limit && <div className="more"><button className="btn" onClick={() => setLimit((l) => l + 500)}>Show more</button></div>}

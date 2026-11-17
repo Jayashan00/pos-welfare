@@ -6,7 +6,7 @@ import { Badge, Empty } from '../components/ui';
 import { IconAlert, IconTill } from '../components/Icons';
 
 export default function Dashboard({ go }) {
-  const { sales, products, settings, members, held } = useStore();
+  const { sales, products, settings, members, held, user } = useStore();
   const cur = settings.currency;
   const today = dayKey();
 
@@ -52,6 +52,13 @@ export default function Dashboard({ go }) {
           <IconAlert size={18} />
           <span>{daysSinceBackup === null ? 'No backup has been made yet.' : `Last backup was ${daysSinceBackup} days ago.`} All sales are kept on this computer only, so save a backup to a USB drive regularly.</span>
           <button className="btn" onClick={() => go('settings')}>Make a backup</button>
+        </div>
+      )}
+      {user.role === 'admin' && !settings.recoveryHash && (
+        <div className="banner warn">
+          <IconAlert size={18} />
+          <span>No PIN recovery code has been issued. Without one, a forgotten administrator PIN cannot be reset.</span>
+          <button className="btn" onClick={() => go('settings')}>Create recovery code</button>
         </div>
       )}
       {settings.sampleData && (

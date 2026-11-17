@@ -64,7 +64,7 @@ function UserForm({ u, onClose }) {
         <label className="field wide"><span>Full name (printed on bills)</span><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required data-autofocus /></label>
         <label className="field"><span>Username</span><input value={f.username} onChange={(e) => setF({ ...f, username: e.target.value.replace(/\s/g, '') })} required /></label>
         <label className="field"><span>Role</span><select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>{Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></label>
-        <label className="field"><span>{u ? 'New PIN (leave empty to keep)' : 'PIN (4 to 8 digits)'}</span><input type="password" inputMode="numeric" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} autoComplete="new-password" /></label>
+        <label className="field"><span>{u ? 'New PIN (leave empty to keep)' : 'PIN (4 to 8 digits)'}</span><input className="masked" data-lpignore="true" inputMode="numeric" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} autoComplete="off" /></label>
         <label className="check" style={{ alignSelf: 'end' }}><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Can sign in</label>
         {err && <div className="form-error wide">{err}</div>}
         <div className="row-btns wide"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary grow">{u ? 'Save changes' : 'Add user'}</button></div>

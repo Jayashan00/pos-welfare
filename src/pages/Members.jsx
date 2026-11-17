@@ -171,7 +171,7 @@ function Statement({ member, onClose }) {
         <div className="table-wrap tall">
           <table className="tbl compact">
             <thead><tr><th>Date</th><th>Detail</th><th>Paid by</th><th className="n">Bill</th><th className="n">On credit</th><th className="n">Paid back</th></tr></thead>
-            <tbody>{rows.map((r, i) => <tr key={i}><td>{fmtDateTime(r.ts)}</td><td>{r.text}</td><td>{r.how}</td><td className="n">{r.total ? money(r.total, '') : ''}</td><td className="n">{r.credit ? money(r.credit, '') : ''}</td><td className="n pos">{r.paid ? money(r.paid, '') : ''}</td></tr>)}</tbody>
+            <tbody>{rows.map((r, i) => <tr key={i}><td>{fmtDateTime(r.ts)}</td><td>{r.text}</td><td>{r.how}</td><td className="n">{r.total ? money(r.total, '') : ''}</td><td className="n">{r.credit ? money(r.credit, '') : ''}</td><td className="n plus">{r.paid ? money(r.paid, '') : ''}</td></tr>)}</tbody>
           </table>
         </div>
       )}
