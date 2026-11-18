@@ -1,3 +1,4 @@
+import { t } from './lib/i18n';
 import { useEffect, useState } from 'react';
 import { can, ROLES, useStore } from './lib/store';
 import { fmtDate, fmtDateTime, escapeHtml } from './lib/utils';
@@ -5,6 +6,7 @@ import { printHTML } from './lib/print';
 import { Modal, useToast } from './components/ui';
 import { IconChart, IconDashboard, IconLock, IconReceipt, IconSettings, IconShield, IconStock, IconBox, IconTill, IconUsers, IconWifiOff, IconPrinter, IconMenu } from './components/Icons';
 import Login from './pages/Login';
+import CustomerDisplay from './pages/CustomerDisplay';
 import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
 import Products from './pages/Products';
@@ -56,21 +58,31 @@ function useOnline() {
   return on;
 }
 
+export function LangSwitch({ dark }) {
+  const { lang, setLanguage } = useStore();
+  return (
+    <div className={`lang-switch ${dark ? 'dark' : ''}`} role="radiogroup" aria-label="Language / භාෂාව">
+      <button type="button" role="radio" aria-checked={lang === 'si'} className={lang === 'si' ? 'on' : ''} onClick={() => setLanguage('si')} lang="si">සිංහල</button>
+      <button type="button" role="radio" aria-checked={lang === 'en'} className={lang === 'en' ? 'on' : ''} onClick={() => setLanguage('en')}>English</button>
+    </div>
+  );
+}
+
 export function RecoveryCodeModal({ code, onClose }) {
   const { settings } = useStore();
   const [ack, setAck] = useState(false);
   const print = () => printHTML(`<!doctype html><html><head><meta charset="utf-8"><style>
     body{font-family:Arial,sans-serif;width:72mm;margin:0 auto;padding:3mm 0;text-align:center;color:#000}
     h1{font-size:15px;margin:0 0 2mm}p{font-size:11px;margin:1mm 0}.c{font-family:'Courier New',monospace;font-size:20px;font-weight:700;border:2px solid #000;padding:3mm 0;margin:3mm 0;letter-spacing:1px}
-  </style></head><body><h1>${escapeHtml(settings.canteenName)}</h1><p><b>POS administrator recovery code</b></p><div class="c">${code}</div>
+  </style></head><body><h1>${escapeHtml(settings.canteenName)}</h1><p><b>{t("POS administrator recovery code")}</b></p><div class="c">${code}</div>
   <p>Use this only to reset a forgotten administrator PIN (Sign in &rarr; Forgot PIN).</p><p>Keep it sealed in the office safe. Do not keep it at the till.</p><p>Issued ${fmtDateTime(Date.now())}</p></body></html>`, { widthMm: settings.paperWidth || 80 });
   return (
-    <Modal title="Your recovery code" width={520} footer={<><button className="btn" onClick={print}><IconPrinter size={17} />Print code</button><button className="btn btn-primary" disabled={!ack} onClick={onClose}>Continue</button></>}>
+    <Modal title={t("Your recovery code")} width={520} footer={<><button className="btn" onClick={print}><IconPrinter size={17} />{t("Print code")}</button><button className="btn btn-primary" disabled={!ack} onClick={onClose}>{t("Continue")}</button></>}>
       <div className="stack">
-        <p>If an administrator ever forgets their PIN, this code resets it without losing any data. It is shown only once.</p>
-        <div className="recovery-code" aria-label="Recovery code">{code}</div>
-        <p className="muted">Print it or write it down and keep it in the office safe, away from the till.</p>
-        <label className="check"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> I have printed or written down this code</label>
+        <p>{t("If an administrator ever forgets their PIN, this code resets it without losing any data. It is shown only once.")}</p>
+        <div className="recovery-code" aria-label={t("Recovery code")}>{code}</div>
+        <p className="muted">{t("Print it or write it down and keep it in the office safe, away from the till.")}</p>
+        <label className="check"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> {t("I have printed or written down this code")}</label>
       </div>
     </Modal>
   );
@@ -84,30 +96,30 @@ function ChangePin({ onSaved }) {
   const [err, setErr] = useState('');
   const submit = async (e) => {
     e.preventDefault();
-    if (!/^\d{4,8}$/.test(a)) return setErr('Use 4 to 8 digits.');
-    if (a === '1234') return setErr('Choose a PIN other than 1234.');
-    if (a !== b) return setErr('The two PINs do not match.');
+    if (!/^\d{4,8}$/.test(a)) return setErr(t("Use 4 to 8 digits."));
+    if (a === '1234') return setErr(t("Choose a PIN other than 1234."));
+    if (a !== b) return setErr(t("The two PINs do not match."));
     let code = null;
     if (user.role === 'admin' && !settings.recoveryHash) code = await createRecoveryCode();
     await saveUser(user, a);
-    toast('PIN saved');
+    toast(t("PIN saved"));
     onSaved(code);
   };
   return (
-    <Modal title="Set your own PIN" width={440}>
+    <Modal title={t("Set your own PIN")} width={440}>
       <form onSubmit={submit} className="stack" autoComplete="off">
-        <p>You are using the starting PIN. Choose a private PIN of 4 to 8 digits before you continue. Do not share it.</p>
-        <label className="field"><span>New PIN</span><input className="masked big-input" inputMode="numeric" autoComplete="off" value={a} onChange={(e) => setA(e.target.value.replace(/\D/g, '').slice(0, 8))} data-autofocus /></label>
-        <label className="field"><span>Repeat new PIN</span><input className="masked big-input" inputMode="numeric" autoComplete="off" value={b} onChange={(e) => setB(e.target.value.replace(/\D/g, '').slice(0, 8))} /></label>
+        <p>{t("You are using the starting PIN. Choose a private PIN of 4 to 8 digits before you continue. Do not share it.")}</p>
+        <label className="field"><span>{t("New PIN")}</span><input className="masked big-input" inputMode="numeric" autoComplete="off" value={a} onChange={(e) => setA(e.target.value.replace(/\D/g, '').slice(0, 8))} data-autofocus /></label>
+        <label className="field"><span>{t("Repeat new PIN")}</span><input className="masked big-input" inputMode="numeric" autoComplete="off" value={b} onChange={(e) => setB(e.target.value.replace(/\D/g, '').slice(0, 8))} /></label>
         {err && <div className="form-error">{err}</div>}
-        <button className="btn btn-primary btn-lg">Save PIN</button>
+        <button className="btn btn-primary btn-lg">{t("Save PIN")}</button>
       </form>
     </Modal>
   );
 }
 
 export default function App() {
-  const { ready, error, user, logout, settings } = useStore();
+  const { ready, error, user, logout, settings, lang } = useStore();
   const online = useOnline();
   const [page, setPage] = useState(() => location.hash.slice(1) || '');
   const [recovery, setRecovery] = useState(null);
@@ -119,8 +131,9 @@ export default function App() {
     return () => window.removeEventListener('hashchange', on);
   }, []);
 
-  if (error) return <div className="splash"><div className="splash-card"><h1>The system cannot start</h1><p>{error}</p></div></div>;
+  if (error) return <div className="splash"><div className="splash-card"><h1>{t("The system cannot start")}</h1><p>{error}</p></div></div>;
   if (!ready) return <div className="splash"><div className="loader" /></div>;
+  if (page === 'display') return <CustomerDisplay />;
   if (!user) return <Login />;
 
   const allowedIds = ALL.filter((n) => can(user, n.id)).map((n) => n.id);
@@ -132,35 +145,36 @@ export default function App() {
   return (
     <div className={`shell ${isPos ? 'shell-pos' : ''}`}>
       <header className="appbar">
-        <button className="icon-btn appbar-menu" onClick={() => setMenuOpen((v) => !v)} aria-label="Menu"><IconMenu /></button>
+        <button className="icon-btn appbar-menu" onClick={() => setMenuOpen((v) => !v)} aria-label={t("Menu")}><IconMenu /></button>
         <div className="appbar-brand">
           <img src={settings.logo || '/icon.svg'} alt="" />
           <div>
-            <b>{settings.canteenName}</b>
-            <small>{settings.unitName ? `${settings.unitName} · ` : ''}Point of Sale System</small>
+            <b>{lang === 'si' && settings.canteenNameSi ? settings.canteenNameSi : settings.canteenName}</b>
+            <small>{settings.unitName ? `${settings.unitName} · ` : ''}{t('Point of Sale System')}</small>
           </div>
         </div>
         <div className="appbar-right">
-          {!online && <span className="offline"><IconWifiOff size={15} /> Offline: sales are still saved</span>}
+          {!online && <span className="offline"><IconWifiOff size={15} /> {t("Offline: sales are still saved")}</span>}
+          <LangSwitch dark />
           <Clock />
           <div className="appbar-user">
-            <span><b>{user.name}</b><small>{ROLES[user.role]?.label}</small></span>
-            <button className="btn btn-on-dark" onClick={logout}><IconLock size={16} />Lock</button>
+            <span><b>{user.name}</b><small>{t(ROLES[user.role]?.label)}</small></span>
+            <button className="btn btn-on-dark" onClick={logout}><IconLock size={16} />{t("Lock")}</button>
           </div>
         </div>
       </header>
       <div className="body">
-        <nav className={`sidenav ${menuOpen ? 'open' : ''}`} aria-label="Main">
+        <nav className={`sidenav ${menuOpen ? 'open' : ''}`} aria-label={t("Main")}>
           {NAV.map((g) => {
             const items = g.items.filter((n) => allowedIds.includes(n.id));
             if (!items.length) return null;
             return (
               <div key={g.group} className="nav-group">
-                <span className="nav-group-label">{g.group}</span>
+                <span className="nav-group-label">{t(g.group)}</span>
                 {items.map((n) => (
-                  <button key={n.id} className={`nav-item ${current.id === n.id ? 'on' : ''}`} onClick={() => go(n.id)} aria-current={current.id === n.id ? 'page' : undefined} title={n.label}>
+                  <button key={n.id} className={`nav-item ${current.id === n.id ? 'on' : ''}`} onClick={() => go(n.id)} aria-current={current.id === n.id ? 'page' : undefined} title={t(n.label)}>
                     <n.icon size={19} />
-                    <span>{n.label}</span>
+                    <span>{t(n.label)}</span>
                   </button>
                 ))}
               </div>
@@ -171,8 +185,8 @@ export default function App() {
         <main className={`content content-${current.id}`}>
           {!isPos && (
             <div className="page-head">
-              <h1>{current.label}</h1>
-              {current.desc && <p>{current.desc}</p>}
+              <h1>{t(current.label)}</h1>
+              {current.desc && <p>{t(current.desc)}</p>}
             </div>
           )}
           <Page go={go} />

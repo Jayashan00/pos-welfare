@@ -3,6 +3,11 @@ import { ean13, uid } from './utils';
 export const DEFAULT_SETTINGS = {
   id: 'main',
   canteenName: 'Army Welfare Canteen',
+  canteenNameSi: 'යුද හමුදා සුබසාධක ආපනශාලාව',
+  unitNameSi: 'රෙජිමේන්තු සුබසාධක වෙළඳසැල',
+  receiptLanguage: 'both',
+  receiptFooterSi: 'සුබසාධක ආපනශාලාවෙන් මිලදී ගැනීම ගැන ස්තූතියි.\nබිල්පත නොමැතිව විකුණූ භාණ්ඩ ආපසු ගනු නොලැබේ.',
+  labelSkip: 0,
   unitName: 'Regimental Welfare Shop',
   address: 'Army Camp',
   phone: '',
@@ -33,13 +38,13 @@ export const DEFAULT_SETTINGS = {
 };
 
 export const DEFAULT_CATEGORIES = [
-  { id: 'cat-groc', name: 'Groceries', color: '#5B7A3A' },
-  { id: 'cat-bev', name: 'Beverages', color: '#2F6E8F' },
-  { id: 'cat-snack', name: 'Snacks & biscuits', color: '#B8742A' },
-  { id: 'cat-toil', name: 'Toiletries', color: '#7A4E8F' },
-  { id: 'cat-house', name: 'Household', color: '#8F3A3A' },
-  { id: 'cat-uni', name: 'Uniform & kit', color: '#4A4F3A' },
-  { id: 'cat-stat', name: 'Stationery', color: '#3A5F8F' },
+  { id: 'cat-groc', nameSi: 'සිල්ලර භාණ්ඩ', name: 'Groceries', color: '#5B7A3A' },
+  { id: 'cat-bev', nameSi: 'පාන වර්ග', name: 'Beverages', color: '#2F6E8F' },
+  { id: 'cat-snack', nameSi: 'කෙටි ආහාර සහ බිස්කට්', name: 'Snacks & biscuits', color: '#B8742A' },
+  { id: 'cat-toil', nameSi: 'සනීපාරක්ෂක භාණ්ඩ', name: 'Toiletries', color: '#7A4E8F' },
+  { id: 'cat-house', nameSi: 'ගෘහ භාණ්ඩ', name: 'Household', color: '#8F3A3A' },
+  { id: 'cat-uni', nameSi: 'නිල ඇඳුම් සහ උපකරණ', name: 'Uniform & kit', color: '#4A4F3A' },
+  { id: 'cat-stat', nameSi: 'ලිපි ද්‍රව්‍ය', name: 'Stationery', color: '#3A5F8F' },
 ];
 
 const S = [
@@ -83,10 +88,13 @@ const S = [
   ['Envelope (10)', 'cat-stat', 'pcs', 80, 95, 4],
 ];
 
+const SAMPLE_SI = {"Samba rice": "සම්බා සහල්", "Red raw rice": "රතු කැකුළු සහල්", "White sugar": "සුදු සීනි", "Red dhal": "රතු පරිප්පු", "Wheat flour": "තිරිඟු පිටි", "Full cream milk powder 400 g": "පිටි කිරි 400 g", "Ceylon tea leaves 200 g": "තේ කොළ 200 g", "Coconut oil 1 L": "පොල් තෙල් 1 L", "Canned fish 425 g": "ටින් මාළු 425 g", "Instant noodles": "ක්ෂණික නූඩ්ල්ස්", "Mineral water 1.5 L": "පානීය ජලය 1.5 L", "Mineral water 500 ml": "පානීය ජලය 500 ml", "Soft drink 400 ml": "බීම 400 ml", "Ginger beer 400 ml": "ජින්ජර් බියර් 400 ml", "Milk packet 180 ml": "කිරි පැකට් 180 ml", "Cream crackers 490 g": "ක්‍රීම් ක්‍රැකර් 490 g", "Chocolate biscuits 100 g": "චොකලට් බිස්කට් 100 g", "Potato chips 50 g": "අර්තාපල් චිප්ස් 50 g", "Bath soap 100 g": "නාන සබන් 100 g", "Toothpaste 120 g": "දත් බෙහෙත් 120 g", "Toothbrush": "දත් බුරුසුව", "Washing powder 1 kg": "රෙදි සෝදන කුඩු 1 kg", "Mosquito coil (10)": "මදුරු දඟර (10)", "Boot polish black": "සපත්තු පොලිෂ් කළු", "Combat socks (pair)": "සටන් මේස් (යුගලය)", "Khaki T-shirt": "කාකි ටී-ෂර්ට්", "Ruled book 120 pg": "රූල් කළ පොත පිටු 120", "Ball pen blue": "නිල් බෝල් පෑන"};
+
 export function sampleProducts() {
   return S.map(([name, categoryId, unit, cost, price, stock, service], i) => ({
     id: uid('p-'),
     name,
+    nameSi: SAMPLE_SI[name] || '',
     barcode: ean13('2000000' + String(i + 1).padStart(5, '0')),
     categoryId,
     unit,

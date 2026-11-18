@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as db from './db';
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS, sampleMembers, sampleProducts } from './seed';
-import { dayKey, ean13, hashPin, pad, round2, uid } from './utils';
+import { dayKey, ean13, hashPin, pad, round2, uid, money, qtyStr } from './utils';
+import { setLangGlobal, t } from './i18n';
 
 const Ctx = createContext(null);
 export const useStore = () => useContext(Ctx);
@@ -14,7 +15,7 @@ export const ROLES = {
 export const can = (user, page) => !!user && ROLES[user.role]?.pages.includes(page);
 export const canManage = (user) => user && (user.role === 'admin' || user.role === 'manager');
 
-const EMPTY = { products: [], categories: [], members: [], users: [], sales: [], stockMoves: [], held: [], payments: [] };
+const EMPTY = { products: [], categories: [], members: [], users: [], sales: [], stockMoves: [], held: [], payments: [], audit: [] };
 const SESSION_KEY = 'wcpos-session';
 
 export function calcTotals(cart, discount, taxRate) {
@@ -36,6 +37,15 @@ export function StoreProvider({ children }) {
   const [data, setData] = useState(EMPTY);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [user, setUser] = useState(null);
+  const [lang, setLangState] = useState(() => {
+    try { return localStorage.getItem('wcpos-lang') === 'si' ? 'si' : 'en'; } catch { return 'en'; }
+  });
+  setLangGlobal(lang); // set before any child renders, so every t() call uses it
+  const setLanguage = (l) => {
+    try { localStorage.setItem('wcpos-lang', l); } catch { /* ignore */ }
+    setLangGlobal(l);
+    setLangState(l);
+  };
   const dataRef = useRef(data);
   const settingsRef = useRef(settings);
   dataRef.current = data;
@@ -71,6 +81,7 @@ export function StoreProvider({ children }) {
     out.sales.sort((a, b) => b.ts - a.ts);
     out.stockMoves.sort((a, b) => b.ts - a.ts);
     out.payments.sort((a, b) => b.ts - a.ts);
+    out.audit.sort((a, b) => b.ts - a.ts);
     out.products.sort((a, b) => a.name.localeCompare(b.name));
     out.members.sort((a, b) => a.name.localeCompare(b.name));
     setData(out);
@@ -101,18 +112,32 @@ export function StoreProvider({ children }) {
     return next;
   };
 
+  // ---------- audit log ----------
+  // Sensitive actions are recorded with who did them and when. There is no
+  // way in the program to edit or delete these entries.
+  const audit = (action, detail = '', who = user) => {
+    const e = { id: uid('a-'), ts: Date.now(), userId: who?.id || '', userName: who?.name || '—', action, detail: String(detail || '') };
+    db.put('audit', e).catch(() => {});
+    setData((d) => ({ ...d, audit: [e, ...d.audit] }));
+  };
+
   // ---------- auth ----------
   const login = async (username, pin) => {
     const u = dataRef.current.users.find((x) => x.username.toLowerCase() === String(username).trim().toLowerCase());
-    if (!u || !u.active) throw new Error('No active user with that username.');
+    if (!u || !u.active) throw new Error(t("No active user with that username."));
     const h = await hashPin(pin);
-    if (h !== u.pinHash) throw new Error('Wrong PIN. Try again.');
+    if (h !== u.pinHash) {
+      audit('Failed sign-in', '', { id: u.id, name: u.name });
+      throw new Error(t("Wrong PIN. Try again."));
+    }
+    audit('Signed in', '', u);
     sessionStorage.setItem(SESSION_KEY, u.id);
     try { localStorage.setItem('wcpos-lastuser', u.username); } catch { /* ignore */ }
     setUser(u);
     return u;
   };
   const logout = () => {
+    if (user) audit('Signed out');
     sessionStorage.removeItem(SESSION_KEY);
     setUser(null);
   };
@@ -128,18 +153,20 @@ export function StoreProvider({ children }) {
     const raw = [...bytes].map((b) => abc[b % abc.length]).join('');
     const code = raw.match(/.{4}/g).join('-');
     await saveSettings({ recoveryHash: await hashPin('rc:' + normCode(code)), recoveryCreatedAt: Date.now() });
+    audit('Recovery code issued');
     return code;
   };
   const resetPinWithCode = async ({ code, userId, pin }) => {
     const set = settingsRef.current;
-    if (!set.recoveryHash) throw new Error('No recovery code has been set up on this computer.');
-    if ((await hashPin('rc:' + normCode(code))) !== set.recoveryHash) throw new Error('That recovery code is not correct.');
-    if (!/^\d{4,8}$/.test(pin)) throw new Error('The new PIN must be 4 to 8 digits.');
+    if (!set.recoveryHash) throw new Error(t("No recovery code has been set up on this computer."));
+    if ((await hashPin('rc:' + normCode(code))) !== set.recoveryHash) throw new Error(t("That recovery code is not correct."));
+    if (!/^\d{4,8}$/.test(pin)) throw new Error(t("The new PIN must be 4 to 8 digits."));
     const u = dataRef.current.users.find((x) => x.id === userId);
-    if (!u) throw new Error('Choose the account to reset.');
+    if (!u) throw new Error(t("Choose the account to reset."));
     const item = { ...u, active: true, pinHash: await hashPin(pin), mustChangePin: false };
     await db.put('users', item);
     patch('users', (a) => upsert(a, item));
+    audit('PIN reset with recovery code', item.name, { id: item.id, name: item.name });
     return item;
   };
 
@@ -159,7 +186,7 @@ export function StoreProvider({ children }) {
     return item;
   };
   const deleteCategory = async (id) => {
-    if (dataRef.current.products.some((p) => p.categoryId === id)) throw new Error('Move the products in this category first.');
+    if (dataRef.current.products.some((p) => p.categoryId === id)) throw new Error(t("Move the products in this category first."));
     await db.remove('categories', id);
     patch('categories', (a) => a.filter((x) => x.id !== id));
   };
@@ -179,12 +206,13 @@ export function StoreProvider({ children }) {
 
   const saveProduct = async (p) => {
     const barcode = String(p.barcode || '').trim();
-    if (!p.name?.trim()) throw new Error('Enter a product name.');
+    if (!p.name?.trim()) throw new Error(t("Enter a product name."));
     if (barcode) {
       const dup = dataRef.current.products.find((x) => x.barcode === barcode && x.id !== p.id);
-      if (dup) throw new Error(`Barcode ${barcode} is already used by "${dup.name}".`);
+      if (dup) throw new Error(t('Barcode {code} is already used by "{name}".', { code: barcode, name: dup.name }));
     }
     const isNew = !p.id;
+    const before = isNew ? null : dataRef.current.products.find((x) => x.id === p.id);
     const item = {
       reorderLevel: settingsRef.current.lowStockDefault,
       trackStock: true,
@@ -207,6 +235,8 @@ export function StoreProvider({ children }) {
     }
     await db.writeAtomic(ops);
     setData((d) => ({ ...d, products: upsert(d.products, item, 'name'), stockMoves: move ? [move, ...d.stockMoves] : d.stockMoves }));
+    if (isNew) audit('Product added', `${item.name} · ${money(item.price, '')}`);
+    else if (before && (before.price !== item.price || before.cost !== item.cost)) audit('Price changed', `${item.name}: ${money(before.price, '')} → ${money(item.price, '')} (cost ${money(before.cost, '')} → ${money(item.cost, '')})`);
     return item;
   };
 
@@ -233,6 +263,7 @@ export function StoreProvider({ children }) {
       const item = {
         ...(prev || { id: uid('p-'), createdAt: Date.now(), active: true, trackStock: true }),
         name: r.name,
+        nameSi: r.nameSi != null && r.nameSi !== '' ? r.nameSi : prev?.nameSi || '',
         barcode: r.barcode || prev?.barcode || '',
         categoryId: catId(r.category),
         unit: r.unit || prev?.unit || 'pcs',
@@ -264,10 +295,13 @@ export function StoreProvider({ children }) {
       const item = { ...p, active: false };
       await db.put('products', item);
       patch('products', (a) => upsert(a, item));
+      audit('Product hidden', p.name);
       return 'hidden';
     }
+    const gone = dataRef.current.products.find((x) => x.id === id);
     await db.remove('products', id);
     patch('products', (a) => a.filter((x) => x.id !== id));
+    audit('Product deleted', gone?.name);
     return 'deleted';
   };
 
@@ -288,36 +322,38 @@ export function StoreProvider({ children }) {
       moves.push(m);
       updated.push(np);
     }
-    if (!ops.length) throw new Error('Add at least one item with a quantity.');
+    if (!ops.length) throw new Error(t("Add at least one item with a quantity."));
     await db.writeAtomic(ops);
     setData((d) => {
       let products = d.products;
       updated.forEach((p) => (products = upsert(products, p)));
       return { ...d, products, stockMoves: [...moves.reverse(), ...d.stockMoves] };
     });
+    audit('Stock received', `${grn} · ${moves.length} items${supplier ? ' · ' + supplier : ''}`);
     return grn;
   };
 
   const adjustStock = async ({ productId, mode, qty, reason, note }) => {
     const p = dataRef.current.products.find((x) => x.id === productId);
-    if (!p) throw new Error('Product not found.');
+    if (!p) throw new Error(t("Product not found."));
     const q = Number(qty);
-    if (Number.isNaN(q)) throw new Error('Enter a quantity.');
+    if (Number.isNaN(q)) throw new Error(t("Enter a quantity."));
     const newStock = mode === 'set' ? q : round2(p.stock + (mode === 'remove' ? -Math.abs(q) : Math.abs(q)));
     const delta = round2(newStock - p.stock);
-    if (delta === 0) throw new Error('Stock is already at that level.');
+    if (delta === 0) throw new Error(t("Stock is already at that level."));
     const np = { ...p, stock: newStock, updatedAt: Date.now() };
     const m = { id: uid('sm-'), ts: Date.now(), productId: p.id, productName: p.name, type: 'adjust', qty: delta, cost: p.cost, ref: reason, note: note || '', userName: user?.name || '' };
     await db.writeAtomic([{ store: 'products', type: 'put', value: np }, { store: 'stockMoves', type: 'put', value: m }]);
     setData((d) => ({ ...d, products: upsert(d.products, np), stockMoves: [m, ...d.stockMoves] }));
+    audit('Stock adjusted', `${p.name}: ${qtyStr(p.stock)} → ${qtyStr(newStock)} (${reason})`);
   };
 
   // ---------- members ----------
   const saveMember = async (m) => {
-    if (!m.name?.trim()) throw new Error('Enter the member name.');
-    if (!m.serviceNo?.trim()) throw new Error('Enter the service number.');
+    if (!m.name?.trim()) throw new Error(t("Enter the member name."));
+    if (!m.serviceNo?.trim()) throw new Error(t("Enter the service number."));
     const dup = dataRef.current.members.find((x) => x.serviceNo.toLowerCase() === m.serviceNo.trim().toLowerCase() && x.id !== m.id);
-    if (dup) throw new Error(`Service number ${m.serviceNo} is already registered to ${dup.name}.`);
+    if (dup) throw new Error(t('Service number {no} is already registered to {name}.', { no: m.serviceNo, name: dup.name }));
     const item = { balance: 0, active: true, ...m, id: m.id || uid('m-'), serviceNo: m.serviceNo.trim(), name: m.name.trim(), creditLimit: Number(m.creditLimit) || 0, discountPct: Number(m.discountPct) || 0, createdAt: m.createdAt || Date.now() };
     await db.put('members', item);
     patch('members', (a) => upsert(a, item, 'name'));
@@ -325,7 +361,7 @@ export function StoreProvider({ children }) {
   };
   const deleteMember = async (id) => {
     const m = dataRef.current.members.find((x) => x.id === id);
-    if (m.balance > 0) throw new Error('This member still owes money. Settle the balance first.');
+    if (m.balance > 0) throw new Error(t("This member still owes money. Settle the balance first."));
     if (dataRef.current.sales.some((s) => s.member?.id === id)) {
       const item = { ...m, active: false };
       await db.put('members', item);
@@ -339,48 +375,53 @@ export function StoreProvider({ children }) {
   const settleMember = async ({ memberId, amount, method, note }) => {
     const m = dataRef.current.members.find((x) => x.id === memberId);
     const a = round2(amount);
-    if (!(a > 0)) throw new Error('Enter an amount above zero.');
-    if (a > round2(m.balance)) throw new Error('Amount is more than the balance owed.');
+    if (!(a > 0)) throw new Error(t("Enter an amount above zero."));
+    if (a > round2(m.balance)) throw new Error(t("Amount is more than the balance owed."));
     const nm = { ...m, balance: round2(m.balance - a) };
     const pay = { id: uid('pay-'), ts: Date.now(), day: dayKey(), memberId, memberName: m.name, serviceNo: m.serviceNo, amount: a, method, note: note || '', userName: user?.name || '', balanceAfter: nm.balance };
     await db.writeAtomic([{ store: 'members', type: 'put', value: nm }, { store: 'payments', type: 'put', value: pay }]);
     setData((d) => ({ ...d, members: upsert(d.members, nm), payments: [pay, ...d.payments] }));
+    audit('Credit payment recorded', `${m.serviceNo} ${m.name} · ${money(a, '')} (${method})`);
     return pay;
   };
 
   // ---------- users ----------
   const saveUser = async (u, pin) => {
-    if (!u.name?.trim() || !u.username?.trim()) throw new Error('Enter a name and username.');
+    if (!u.name?.trim() || !u.username?.trim()) throw new Error(t("Enter a name and username."));
     const dup = dataRef.current.users.find((x) => x.username.toLowerCase() === u.username.trim().toLowerCase() && x.id !== u.id);
-    if (dup) throw new Error('That username is taken.');
-    if (!u.id && !pin) throw new Error('Set a PIN for the new user.');
-    if (pin && !/^\d{4,8}$/.test(pin)) throw new Error('PIN must be 4 to 8 digits.');
+    if (dup) throw new Error(t("That username is taken."));
+    if (!u.id && !pin) throw new Error(t("Set a PIN for the new user."));
+    if (pin && !/^\d{4,8}$/.test(pin)) throw new Error(t("PIN must be 4 to 8 digits."));
     const admins = dataRef.current.users.filter((x) => x.role === 'admin' && x.active && x.id !== u.id);
     if (u.id && (!u.active || u.role !== 'admin') && admins.length === 0 && dataRef.current.users.find((x) => x.id === u.id)?.role === 'admin')
-      throw new Error('Keep at least one active administrator.');
+      throw new Error(t("Keep at least one active administrator."));
     const item = { active: true, ...u, id: u.id || uid('u-'), username: u.username.trim(), name: u.name.trim(), createdAt: u.createdAt || Date.now() };
     if (pin) {
       item.pinHash = await hashPin(pin);
       item.mustChangePin = false;
     }
+    const prevU = dataRef.current.users.find((x) => x.id === item.id);
     await db.put('users', item);
     patch('users', (a) => upsert(a, item));
     if (user?.id === item.id) setUser(item);
+    if (!prevU) audit('User added', `${item.name} (${item.role})`);
+    else if (prevU.role !== item.role || prevU.active !== item.active || pin) audit('User changed', `${item.name}: ${item.role}${item.active ? '' : ', switched off'}${pin ? ', PIN changed' : ''}`);
     return item;
   };
   const deleteUser = async (id) => {
-    if (id === user?.id) throw new Error('You cannot delete yourself.');
+    if (id === user?.id) throw new Error(t("You cannot delete yourself."));
     const u = dataRef.current.users.find((x) => x.id === id);
-    if (u.role === 'admin' && dataRef.current.users.filter((x) => x.role === 'admin' && x.active).length <= 1) throw new Error('Keep at least one active administrator.');
+    if (u.role === 'admin' && dataRef.current.users.filter((x) => x.role === 'admin' && x.active).length <= 1) throw new Error(t("Keep at least one active administrator."));
     await db.remove('users', id);
     patch('users', (a) => a.filter((x) => x.id !== id));
+    audit('User deleted', u.name);
   };
 
   // ---------- sales ----------
   const completeSale = async ({ cart, member, discount, payments, tendered, note }) => {
     const set = settingsRef.current;
     const d = dataRef.current;
-    if (!cart.length) throw new Error('The bill is empty.');
+    if (!cart.length) throw new Error(t("The bill is empty."));
     const prodMap = new Map(d.products.map((p) => [p.id, p]));
 
     // stock check
@@ -389,27 +430,27 @@ export function StoreProvider({ children }) {
       cart.forEach((it) => need.set(it.productId, (need.get(it.productId) || 0) + Number(it.qty)));
       for (const [pid, q] of need) {
         const p = prodMap.get(pid);
-        if (p && p.trackStock && p.stock < q) throw new Error(`Only ${p.stock} of "${p.name}" in stock.`);
+        if (p && p.trackStock && p.stock < q) throw new Error(t('Only {n} of "{name}" in stock.', { n: p.stock, name: p.name }));
       }
     }
 
-    const t = calcTotals(cart, discount, set.taxRate);
+    const tot = calcTotals(cart, discount, set.taxRate);
     const paid = round2(payments.reduce((a, p) => a + Number(p.amount), 0));
-    if (Math.abs(paid - t.total) > 0.009) throw new Error('Payment does not match the bill total.');
+    if (Math.abs(paid - tot.total) > 0.009) throw new Error(t("Payment does not match the bill total."));
 
     const creditAmt = round2(payments.filter((p) => p.method === 'credit').reduce((a, p) => a + p.amount, 0));
     let mem = member ? d.members.find((x) => x.id === member.id) : null;
     if (creditAmt > 0) {
-      if (!mem) throw new Error('Select a member for a credit sale.');
-      if (!(mem.creditLimit > 0)) throw new Error(`${mem.name} has no credit limit set.`);
-      if (round2(mem.balance + creditAmt) > mem.creditLimit) throw new Error(`Credit limit reached. Available credit: ${set.currency} ${round2(mem.creditLimit - mem.balance).toFixed(2)}`);
+      if (!mem) throw new Error(t("Select a member for a credit sale."));
+      if (!(mem.creditLimit > 0)) throw new Error(t('{name} has no credit limit set.', { name: mem.name }));
+      if (round2(mem.balance + creditAmt) > mem.creditLimit) throw new Error(t('Credit limit reached. Available credit: {amount}', { amount: money(mem.creditLimit - mem.balance, set.currency) }));
     }
 
     const now = Date.now();
     const billNo = (set.billPrefix || '') + pad(set.nextBillNo || 1, 6);
     const items = cart.map((it) => {
       const p = prodMap.get(it.productId);
-      return { productId: it.productId, name: it.name, barcode: it.barcode, categoryId: p?.categoryId || '', unit: it.unit, qty: Number(it.qty), price: round2(it.price), cost: round2(p?.cost || 0), lineTotal: round2(it.price * it.qty) };
+      return { productId: it.productId, name: it.name, nameSi: it.nameSi || p?.nameSi || '', barcode: it.barcode, categoryId: p?.categoryId || '', unit: it.unit, qty: Number(it.qty), price: round2(it.price), cost: round2(p?.cost || 0), lineTotal: round2(it.price * it.qty) };
     });
     const cashPaid = payments.filter((p) => p.method === 'cash').reduce((a, p) => a + p.amount, 0);
     const sale = {
@@ -421,7 +462,7 @@ export function StoreProvider({ children }) {
       userName: user.name,
       member: mem ? { id: mem.id, name: mem.name, rank: mem.rank, serviceNo: mem.serviceNo, type: mem.type } : null,
       items,
-      ...t,
+      ...tot,
       taxRate: set.taxRate,
       discountLabel: discount && Number(discount.value) > 0 ? (discount.type === 'pct' ? `${discount.value}%` : '') : '',
       payments: payments.map((p) => ({ method: p.method, amount: round2(p.amount) })),
@@ -453,6 +494,9 @@ export function StoreProvider({ children }) {
     ops.push({ store: 'settings', type: 'put', value: nextSet });
 
     await db.writeAtomic(ops);
+    if (sale.discount > 0) audit('Discount given', `${billNo} · ${money(sale.discount, '')}${sale.discountLabel ? ' (' + sale.discountLabel + ')' : ''}`);
+    const overrides = items.filter((it) => { const p = prodMap.get(it.productId); return p && round2(p.price) !== it.price; });
+    if (overrides.length) audit('Price changed on bill', `${billNo} · ` + overrides.map((it) => `${it.name}: ${money(prodMap.get(it.productId).price, '')} → ${money(it.price, '')}`).join('; '));
     settingsRef.current = nextSet;
     setSettings(nextSet);
     setData((dd) => {
@@ -466,8 +510,9 @@ export function StoreProvider({ children }) {
   const voidSale = async (saleId, reason) => {
     const d = dataRef.current;
     const s = d.sales.find((x) => x.id === saleId);
-    if (!s || s.status === 'void') throw new Error('This bill is already void.');
-    if (!reason?.trim()) throw new Error('Enter a reason for voiding.');
+    if (!s || s.status === 'void') throw new Error(t("This bill is already void."));
+    if (s.type === 'return' || s.returnCount > 0) throw new Error(t('This bill has returns, so it cannot be voided.'));
+    if (!reason?.trim()) throw new Error(t("Enter a reason for voiding."));
     const now = Date.now();
     const ns = { ...s, status: 'void', voidTs: now, voidBy: user.name, voidReason: reason.trim() };
     const ops = [{ store: 'sales', type: 'put', value: ns }];
@@ -497,7 +542,67 @@ export function StoreProvider({ children }) {
       upd.forEach((p) => (products = upsert(products, p)));
       return { ...dd, sales: dd.sales.map((x) => (x.id === ns.id ? ns : x)), products, stockMoves: [...moves, ...dd.stockMoves], members: nm ? upsert(dd.members, nm) : dd.members };
     });
+    audit('Bill voided', `${s.billNo} · ${money(s.total, '')} · ${reason.trim()}`);
     return ns;
+  };
+
+  // ---------- customer returns ----------
+  const returnItems = async ({ saleId, lines, reason, method }) => {
+    const d = dataRef.current;
+    const s = d.sales.find((x) => x.id === saleId);
+    if (!s || s.status === 'void' || s.type === 'return') throw new Error(t('This bill cannot be returned.'));
+    if (!reason?.trim()) throw new Error(t('Enter a reason for the return.'));
+    const returned = { ...(s.returned || {}) };
+    const items = [];
+    for (const { index, qty } of lines) {
+      const it = s.items[index];
+      const q = round2(Number(qty));
+      if (!it || !(q > 0)) continue;
+      const max = round2(it.qty - (returned[index] || 0));
+      if (q > max) throw new Error(t('Only {n} of "{name}" can be returned.', { n: qtyStr(max), name: it.name }));
+      returned[index] = round2((returned[index] || 0) + q);
+      items.push({ ...it, qty: -q, lineTotal: -round2(it.price * q) });
+    }
+    if (!items.length) throw new Error(t('Choose at least one item to return.'));
+    const gross = round2(-items.reduce((a, i) => a + i.lineTotal, 0));
+    const disc = s.subtotal > 0 ? round2((gross * s.discount) / s.subtotal) : 0;
+    const tax = s.taxRate > 0 ? round2(((gross - disc) * s.taxRate) / 100) : 0;
+    const refund = round2(gross - disc + tax);
+    if (method === 'credit' && !s.member) throw new Error(t('Select a member for a credit sale.'));
+    const now = Date.now();
+    const n = (s.returnCount || 0) + 1;
+    const rec = {
+      id: uid('s-'), type: 'return', billNo: `${s.billNo}-R${n}`, origId: s.id, origBillNo: s.billNo,
+      ts: now, day: dayKey(now), userId: user.id, userName: user.name, member: s.member, items,
+      subtotal: -gross, discount: -disc, tax: -tax, taxRate: s.taxRate, total: -refund,
+      payments: [{ method, amount: -refund }], tendered: 0, change: 0, reason: reason.trim(), status: 'completed',
+    };
+    const ns = { ...s, returned, returnCount: n };
+    const ops = [{ store: 'sales', type: 'put', value: rec }, { store: 'sales', type: 'put', value: ns }];
+    const moves = [];
+    const upd = new Map();
+    items.forEach((it) => {
+      const p = upd.get(it.productId) || d.products.find((x) => x.id === it.productId);
+      if (!p || !p.trackStock) return;
+      const np = { ...p, stock: round2(p.stock - it.qty) };
+      upd.set(p.id, np);
+      moves.push({ id: uid('sm-'), ts: now, productId: p.id, productName: p.name, type: 'return', qty: -it.qty, cost: p.cost, ref: rec.billNo, note: reason.trim(), userName: user.name });
+    });
+    upd.forEach((p) => ops.push({ store: 'products', type: 'put', value: p }));
+    moves.forEach((m) => ops.push({ store: 'stockMoves', type: 'put', value: m }));
+    let nm = null;
+    if (method === 'credit' && s.member) {
+      const m = d.members.find((x) => x.id === s.member.id);
+      if (m) { nm = { ...m, balance: round2(Math.max(0, m.balance - refund)) }; ops.push({ store: 'members', type: 'put', value: nm }); }
+    }
+    await db.writeAtomic(ops);
+    setData((dd) => {
+      let products = dd.products;
+      upd.forEach((p) => (products = upsert(products, p)));
+      return { ...dd, sales: [rec, ...dd.sales.map((x) => (x.id === ns.id ? ns : x))], products, stockMoves: [...moves, ...dd.stockMoves], members: nm ? upsert(dd.members, nm) : dd.members };
+    });
+    audit('Items returned', `${rec.billNo} · ${money(refund, '')} · ${reason.trim()}`);
+    return rec;
   };
 
   // ---------- held bills ----------
@@ -517,6 +622,7 @@ export function StoreProvider({ children }) {
     const out = { app: 'welfare-canteen-pos', version: 1, exportedAt: new Date().toISOString(), data: {} };
     for (const s of db.STORES) out.data[s] = await db.getAll(s);
     await saveSettings({ lastBackup: Date.now() });
+    audit('Backup downloaded');
     out.data.settings = [{ ...settingsRef.current, lastBackup: Date.now() }];
     return JSON.stringify(out);
   };
@@ -525,10 +631,10 @@ export function StoreProvider({ children }) {
     try {
       parsed = JSON.parse(json);
     } catch {
-      throw new Error('This file is not a valid backup.');
+      throw new Error(t("This file is not a valid backup."));
     }
-    if (parsed.app !== 'welfare-canteen-pos' || !parsed.data) throw new Error('This file is not a Welfare Canteen POS backup.');
-    if (!parsed.data.users?.some((u) => u.role === 'admin')) throw new Error('The backup has no administrator account, so it was not restored.');
+    if (parsed.app !== 'welfare-canteen-pos' || !parsed.data) throw new Error(t("This file is not a Welfare Canteen POS backup."));
+    if (!parsed.data.users?.some((u) => u.role === 'admin')) throw new Error(t("The backup has no administrator account, so it was not restored."));
     for (const s of db.STORES) {
       await db.clearStore(s);
       if (Array.isArray(parsed.data[s])) await db.putMany(s, parsed.data[s]);
@@ -547,6 +653,7 @@ export function StoreProvider({ children }) {
     const keepMembers = d.members.filter((m) => !m.sample).map((m) => ({ ...m, balance: 0 }));
     await db.putMany('members', keepMembers);
     await saveSettings({ nextBillNo: 1, sampleData: false });
+    audit('Started live trading');
     setData((dd) => ({ ...dd, sales: [], stockMoves: [], held: [], payments: [], products: dd.products.filter((p) => !p.sample), members: keepMembers }));
   };
   const factoryReset = async () => {
@@ -558,18 +665,18 @@ export function StoreProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      ready, error, settings, user, ...data,
+      ready, error, settings, user, ...data, lang, setLanguage,
       login, logout, saveSettings, createRecoveryCode, resetPinWithCode,
       saveCategory, deleteCategory,
       saveProduct, deleteProduct, importProducts, nextItemBarcode,
       receiveStock, adjustStock,
       saveMember, deleteMember, settleMember,
       saveUser, deleteUser,
-      completeSale, voidSale, holdBill, removeHeld,
+      completeSale, voidSale, returnItems, holdBill, removeHeld, logAudit: audit,
       exportBackup, importBackup, goLive, factoryReset,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ready, error, settings, user, data]
+    [ready, error, settings, user, data, lang]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

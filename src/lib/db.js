@@ -1,8 +1,8 @@
 // Small IndexedDB wrapper. Every record is stored on its own, so the
 // sales history can grow to years of data without slowing the till.
 const DB_NAME = 'welfare-canteen-pos';
-const DB_VERSION = 1;
-export const STORES = ['products', 'categories', 'members', 'users', 'sales', 'stockMoves', 'held', 'payments', 'settings'];
+const DB_VERSION = 2; // v2 adds the audit log; upgrading keeps all existing data
+export const STORES = ['products', 'categories', 'members', 'users', 'sales', 'stockMoves', 'held', 'payments', 'settings', 'audit'];
 
 let dbPromise = null;
 

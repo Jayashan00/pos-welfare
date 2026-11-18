@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { IconX, IconCheck, IconAlert } from './Icons';
 
@@ -16,10 +17,10 @@ export function ToastProvider({ children }) {
     <ToastCtx.Provider value={push}>
       {children}
       <div className="toasts" role="status" aria-live="polite">
-        {list.map((t) => (
-          <div key={t.id} className={`toast toast-${t.type}`}>
-            {t.type === 'error' ? <IconAlert size={18} /> : <IconCheck size={18} />}
-            <span>{t.msg}</span>
+        {list.map((ts) => (
+          <div key={ts.id} className={`toast toast-${ts.type}`}>
+            {ts.type === 'error' ? <IconAlert size={18} /> : <IconCheck size={18} />}
+            <span>{ts.msg}</span>
           </div>
         ))}
       </div>
@@ -52,7 +53,7 @@ export function Modal({ title, onClose, children, footer, width = 560, className
         <div className="modal-head">
           <h2>{title}</h2>
           {onClose && (
-            <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <button className="icon-btn" onClick={onClose} aria-label={t("Close")}>
               <IconX />
             </button>
           )}
@@ -104,7 +105,7 @@ function ConfirmDialog({ state, close }) {
       width={460}
       footer={
         <>
-          <button className="btn" onClick={() => close(false)}>Cancel</button>
+          <button className="btn" onClick={() => close(false)}>{t("Cancel")}</button>
           <button className={`btn ${state.danger ? 'btn-danger' : 'btn-primary'}`} disabled={!ok} onClick={submit} data-autofocus={!needInput || undefined}>
             {state.confirmText || 'Confirm'}
           </button>
@@ -171,6 +172,50 @@ export const applyPadKey = (value, k) => {
   return v === '0' && k !== '.' ? k : v + k;
 };
 
+// ---------- keyboard-language-proof barcode input ----------
+// A USB scanner types like a keyboard. If Windows is set to a Sinhala
+// keyboard, the same keys arrive as Sinhala letters. The physical key
+// (e.code) never changes, so the real barcode is rebuilt from it.
+const CODE_CHARS = { Minus: '-', NumpadSubtract: '-', Period: '.', NumpadDecimal: '.', Slash: '/', NumpadDivide: '/', NumpadMultiply: '*', NumpadAdd: '+', Space: ' ', Equal: '=' };
+export function asciiFromEvent(e) {
+  const c = e.code || '';
+  let m = /^(?:Digit|Numpad)(\d)$/.exec(c);
+  if (m) return e.shiftKey && c.startsWith('Digit') ? null : m[1];
+  m = /^Key([A-Z])$/.exec(c);
+  if (m) return e.shiftKey ? m[1] : m[1].toLowerCase();
+  return CODE_CHARS[c] || null;
+}
+const isAscii = (k) => k.length === 1 && k.charCodeAt(0) < 128;
+
+// Fields marked data-ascii (barcode boxes) always receive the real barcode.
+export function installAsciiInputs() {
+  document.addEventListener('keydown', (e) => {
+    const el = e.target;
+    if (!(el instanceof HTMLInputElement) || !el.hasAttribute('data-ascii')) return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    if (isAscii(e.key) || (e.key.length !== 1 && e.key !== 'Process')) return;
+    const ch = asciiFromEvent(e);
+    if (!ch) return;
+    e.preventDefault();
+    const a = el.selectionStart ?? el.value.length, b = el.selectionEnd ?? el.value.length;
+    el.setRangeText(ch, a, b, 'end');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, true);
+}
+
+// For search boxes that also accept Sinhala typing: remember the physical
+// keys, so a scan made under a Sinhala keyboard can still be recognised.
+export function useCodeTrail() {
+  const trail = useRef([]);
+  const onKeyDown = (e) => {
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.key === 'Backspace') { trail.current.pop(); return; }
+    if (e.key.length === 1 || e.key === 'Process') trail.current.push(isAscii(e.key) ? e.key : asciiFromEvent(e) || '');
+  };
+  return { onKeyDown, ascii: () => trail.current.join(''), reset: () => { trail.current = []; } };
+}
+export const hasNonAscii = (s) => /[^\x00-\x7F]/.test(s);
+
 // ---------- barcode scanner ----------
 // USB scanners act like a very fast keyboard that ends with Enter.
 // This catches scans when no text box has focus, so both scanners
@@ -183,8 +228,8 @@ export function useScanner(onScan, enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     const onKey = (e) => {
-      const t = e.target;
-      const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+      const tg = e.target;
+      const typing = tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT' || tg.isContentEditable);
       if (typing) return;
       if (document.querySelector('.modal-back')) { buf.current = ''; return; }
       const now = performance.now();
@@ -198,7 +243,10 @@ export function useScanner(onScan, enabled = true) {
         buf.current = '';
         return;
       }
-      if (e.key.length === 1) buf.current += e.key;
+      if (e.key.length === 1 || e.key === 'Process') {
+        const ch = isAscii(e.key) ? e.key : asciiFromEvent(e);
+        if (ch) buf.current += ch;
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -212,10 +260,10 @@ export function Badge({ tone = 'neutral', children }) {
 export function Tabs({ tabs, value, onChange }) {
   return (
     <div className="tabs" role="tablist">
-      {tabs.map((t) => (
-        <button key={t.id} role="tab" aria-selected={value === t.id} className={`tab ${value === t.id ? 'on' : ''}`} onClick={() => onChange(t.id)}>
-          {t.label}
-          {t.count != null && <span className="tab-count">{t.count}</span>}
+      {tabs.map((tb) => (
+        <button key={tb.id} role="tab" aria-selected={value === tb.id} className={`tab ${value === tb.id ? 'on' : ''}`} onClick={() => onChange(tb.id)}>
+          {tb.label}
+          {tb.count != null && <span className="tab-count">{tb.count}</span>}
         </button>
       ))}
     </div>

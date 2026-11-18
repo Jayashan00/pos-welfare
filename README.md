@@ -13,6 +13,31 @@ barcode labels, stock control, member credit (salary deduction), reports and day
   without losing any data. A new code can be issued in Settings, under Security.
 - Create a second Administrator account for the officer in charge as a further safeguard.
 
+## Sinhala and English
+- Switch the screen language with **සිංහල | English** in the top bar or on the sign-in card.
+  Each computer remembers its choice.
+- Products and categories have an optional **Sinhala name**. It prints on receipts and labels,
+  shows on the customer display, and can be searched on the till.
+- Settings, Receipt printer, **Receipt language**: Sinhala and English (default), Sinhala only,
+  or English only. Enter the canteen name and closing message in Sinhala in Settings.
+- The Sinhala font is built into the system, so Sinhala prints the same on every computer and
+  printer, even offline.
+- Spreadsheet import: save from Excel as **CSV UTF-8** and add a `name_si` column.
+- Barcode scanners keep working even when Windows is set to a Sinhala keyboard.
+
+## Other features
+- **Customer display:** connect a second monitor facing buyers, press Customer display on the
+  Sell screen, drag the window to that monitor, double-click for full screen.
+- **Returns:** Bills, open a bill, Return items. Stock goes back and a return receipt prints.
+- **Audit log:** Reports, Audit log. Sign-ins, voids, returns, discounts, price and stock
+  changes, users and settings are recorded and cannot be edited.
+- **Barcode labels:** label-printer rolls, or A4 sticker sheets (65, 40 or 24 per sheet) on any
+  office printer. You can skip used stickers on a part-used sheet.
+
+## Updating an existing installation
+Existing data upgrades automatically the first time the new version opens (database version 2).
+Make a backup before updating, as a precaution.
+
 ## Run on your own computer (optional)
 1. Install Node.js 18 or newer from nodejs.org.
 2. In this folder run `npm install` then `npm run dev`, and open the address it shows.
